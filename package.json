@@ -1,0 +1,12 @@
+{
+  "name": "about-time",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A quiet way for a family to share how much social battery is left — and say when they're ready to go.",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python3 -m http.server 8940",
+    "icons": "python3 scripts/make-icons.py"
+  }
+}
