@@ -3,7 +3,7 @@
 // Two jobs: keep the shell available on bad venue wifi, and receive the Web
 // Push that says someone is ready to go.
 
-const CACHE = 'about-time-v9';
+const CACHE = 'about-time-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -21,7 +21,20 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE);
+      // cache:'reload' bypasses the browser's HTTP cache. GitHub Pages serves
+      // assets with max-age=600, so a plain addAll can precache the previous
+      // deploy's JS and keep it alive until the next cache bump.
+      await Promise.all(
+        ASSETS.map(async (asset) => {
+          const response = await fetch(asset, { cache: 'reload' });
+          if (response.ok) await cache.put(asset, response);
+        }),
+      );
+    })(),
+  );
   self.skipWaiting();
 });
 
