@@ -13,7 +13,7 @@ Open it at church, at a wedding reception, at a long lunch. Everyone taps their 
 
 Status: **v0.1.0** — built, unit-tested, browser-verified and live.
 **Live:** https://changelinglabs.com/about-time/
-The Supabase backend is switched on (anonymous auth, schema, `notify-ready`). Push delivery still needs a real two-device test.
+The Supabase backend is on (anonymous auth, schema, `notify-ready`) and the two-device test passed: live status sync plus Web Push on macOS and on the iPhone Home Screen app.
 
 ---
 
