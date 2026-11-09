@@ -11,9 +11,9 @@ Open it at church, at a wedding reception, at a long lunch. Everyone taps their 
 - **Real Web Push**, so it reaches a phone in a pocket with the app closed.
 - **Installable PWA.** Cache-first shell, light and dark, WCAG AA, Lighthouse 100/100/100.
 
-Status: **v0.1.0** — built, unit-tested and verified in a browser.
-**Preview:** https://changelinglabs.com/about-time/?demo=1 (demo mode, no backend needed).
-The live backend needs three one-time dashboard steps (below); until they are done the app shows a clear setup message instead of the outing screen.
+Status: **v0.1.0** — built, unit-tested, browser-verified and live.
+**Live:** https://changelinglabs.com/about-time/
+The Supabase backend is switched on (anonymous auth, schema, `notify-ready`). Push delivery still needs a real two-device test.
 
 ---
 
@@ -77,7 +77,9 @@ All objects are prefixed `at_` and live in the **Pulse** Supabase project. Nothi
 
 ## Setup (three one-time dashboard steps)
 
-The client config already points at the Pulse project. You only need to switch the backend on.
+Already done for the live site on 2026-11-08. Keep this for rebuilding from scratch or moving to another project.
+
+The client config points at the Pulse project.
 
 ### 1. Enable anonymous sign-ins
 
