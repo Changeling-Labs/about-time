@@ -142,6 +142,9 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+-- The OUT parameters below share names with at_members columns. Without this,
+-- `on conflict (outing_id, user_id)` raises "column reference is ambiguous".
 declare
   v_code   text;
   v_outing uuid;
@@ -194,6 +197,8 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+#variable_conflict use_column
+-- See at_create_outing: OUT parameters shadow at_members column names.
 declare
   v_code   text := upper(regexp_replace(coalesce(p_code, ''), '[^A-Za-z0-9]', '', 'g'));
   v_outing public.at_outings;

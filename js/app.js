@@ -88,8 +88,8 @@ function friendlyError(err) {
   if (/No outing with that code/i.test(message)) {
     return 'No outing with that code. Check the six characters.';
   }
-  if (/relation .* does not exist|Could not find the table|schema cache/i.test(message)) {
-    return 'The database isn’t set up yet — run supabase/schema.sql in the SQL editor.';
+  if (/relation .* does not exist|Could not find the table|schema cache|ambiguous|Could not find the function/i.test(message)) {
+    return 'The database needs updating — re-run supabase/schema.sql in the SQL editor.';
   }
   if (/Failed to fetch|NetworkError|Load failed|fetch/i.test(message)) {
     return 'Can’t reach the server. Check your connection and try again.';
