@@ -33,7 +33,8 @@ import {
 } from './push.js';
 
 const IDENTITY_KEY = 'about-time.identity.v1';
-const PUSH_DISMISSED_KEY = 'about-time.push-dismissed.v1';
+const PUSH_DISMISSED_KEY = 'about-time.push-dismissed.v2';
+const IOS_HINT_KEY = 'about-time.ios-hint-dismissed.v1';
 const EMOJIS = ['🦉', '🌷', '🎩', '🐝', '🚀', '🐢', '🍋', '🦊', '🐳', '🌙', '🧢', '☕'];
 
 const state = {
@@ -46,7 +47,7 @@ const state = {
   prefillCode: '',
   busy: false,
   error: '',
-  push: { supported: false, permission: 'default', dismissed: false },
+  push: { supported: false, permission: 'default', dismissed: false, iosHintDismissed: false },
 };
 
 const app = document.getElementById('app');
@@ -146,8 +147,10 @@ async function boot() {
   state.push.permission = pushPermission();
   try {
     state.push.dismissed = localStorage.getItem(PUSH_DISMISSED_KEY) === '1';
+    state.push.iosHintDismissed = localStorage.getItem(IOS_HINT_KEY) === '1';
   } catch {
     state.push.dismissed = false;
+    state.push.iosHintDismissed = false;
   }
 
   if (state.demo) {
@@ -450,6 +453,16 @@ function dismissPush() {
   render();
 }
 
+function dismissIosHint() {
+  state.push.iosHintDismissed = true;
+  try {
+    localStorage.setItem(IOS_HINT_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+  render();
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────
 
 function render() {
@@ -608,22 +621,45 @@ function personHtml(person) {
 }
 
 function pushCardHtml() {
-  if (!state.outing || !state.push.supported) return '';
-  if (state.push.permission === 'granted' || state.push.dismissed) return '';
+  if (!state.outing) return '';
+
+  // No Push API at all: on iOS that means an OS older than 16.4.
+  if (!state.push.supported) {
+    if (isIOS()) {
+      return `<section class="card push">
+        <h2>Notifications need iOS 16.4 or later</h2>
+        <p class="muted">Update your iPhone, then add ${APP_NAME} to the Home Screen and open it from there.</p>
+      </section>`;
+    }
+    return '';
+  }
+
+  if (state.push.permission === 'granted') {
+    return `<p class="alert-status">Alerts on — you’ll be nudged when someone’s ready.</p>`;
+  }
+
+  // Safari on iPhone cannot receive Web Push. Only the Home Screen app can.
+  if (isIOS() && !isStandalone()) {
+    if (state.push.iosHintDismissed) return '';
+    return `<section class="card push">
+      <h2>Add to Home Screen to get alerts</h2>
+      <ol class="steps">
+        <li>Tap the <strong>Share</strong> button in Safari.</li>
+        <li>Choose <strong>Add to Home Screen</strong>.</li>
+        <li>Open ${APP_NAME} from the new icon.</li>
+      </ol>
+      <p class="muted">Apple only delivers notifications to web apps opened from the Home Screen — not from a Safari tab.</p>
+      <button class="btn btn-ghost" data-action="dismiss-ios-hint">Not now</button>
+    </section>`;
+  }
+
+  if (state.push.dismissed) return '';
 
   if (state.push.permission === 'denied') {
     return `<section class="card push">
       <h2>Alerts are blocked</h2>
       <p class="muted">Your browser is blocking notifications for this site. You can re-enable them in its settings.</p>
       <button class="btn btn-ghost" data-action="dismiss-push">Dismiss</button>
-    </section>`;
-  }
-
-  if (isIOS() && !isStandalone()) {
-    return `<section class="card push">
-      <h2>Add to Home Screen for alerts</h2>
-      <p class="muted">On iPhone, tap Share → <strong>Add to Home Screen</strong>, then open ${APP_NAME} from the icon and turn alerts on.</p>
-      <button class="btn btn-ghost" data-action="dismiss-push">Not now</button>
     </section>`;
   }
 
@@ -762,6 +798,9 @@ app.addEventListener('click', (event) => {
       break;
     case 'dismiss-push':
       dismissPush();
+      break;
+    case 'dismiss-ios-hint':
+      dismissIosHint();
       break;
     case 'retry':
       boot();

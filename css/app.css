@@ -853,6 +853,30 @@ button {
   line-height: 1.5;
 }
 
+.steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.steps li::marker {
+  color: var(--ember);
+  font-weight: 700;
+}
+
+.alert-status {
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--sage);
+  padding: 2px 0;
+}
+
 /* ── Outro ────────────────────────────────────────────────────────────── */
 
 .outro {
