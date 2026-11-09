@@ -94,6 +94,9 @@ function friendlyError(err) {
   if (/Failed to fetch|NetworkError|Load failed|fetch/i.test(message)) {
     return 'Can’t reach the server. Check your connection and try again.';
   }
+  if (/null is not an object|undefined is not an object|Cannot read propert/i.test(message)) {
+    return 'Something went wrong on this device. Reload the page and try again.';
+  }
   return message || 'Something went wrong.';
 }
 
@@ -160,6 +163,7 @@ async function boot() {
 
   try {
     await ensureSession();
+    state.store = createRemoteStore();
   } catch (err) {
     state.view = 'error';
     state.error = friendlyError(err);
@@ -300,6 +304,7 @@ async function handleStart(form) {
   const emoji = form.querySelector('.emoji-row')?.dataset.value || '🦉';
 
   if (!isValidName(name)) return flash('Add your name first.');
+  if (!state.store) return flash('Not connected — reload the page.');
 
   await run(async () => {
     const { outing, memberId } = await state.store.start({ title, name, emoji });
@@ -320,6 +325,7 @@ async function handleJoin(form) {
 
   if (!isValidCode(code)) return flash('That code should be six characters, like ABC 234.');
   if (!isValidName(name)) return flash('Add your name first.');
+  if (!state.store) return flash('Not connected — reload the page.');
 
   await run(async () => {
     const { outing, memberId } = await state.store.join({ code, name, emoji });
