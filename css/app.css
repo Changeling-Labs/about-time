@@ -365,6 +365,30 @@ button {
   color: var(--muted);
 }
 
+/* ── Demo banner ──────────────────────────────────────────────────────── */
+
+.demo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--ember-soft);
+  border: 1px solid rgb(217 80 43 / 35%);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.demo-banner a {
+  color: var(--ember);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
 /* ── Top bar / outing header ──────────────────────────────────────────── */
 
 .topbar {

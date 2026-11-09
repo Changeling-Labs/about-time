@@ -644,6 +644,11 @@ function outingHtml() {
   const code = formatCode(state.outing.code);
 
   return `<main class="narrow">
+    ${
+      state.demo
+        ? `<div class="demo-banner"><span>Demo mode — these people aren’t real.</span><a href="./">Use the real app</a></div>`
+        : ''
+    }
     <header class="topbar">
       <div class="topbar-copy">
         <p class="eyebrow">Outing</p>

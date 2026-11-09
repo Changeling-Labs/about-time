@@ -3,7 +3,7 @@
 // Two jobs: keep the shell available on bad venue wifi, and receive the Web
 // Push that says someone is ready to go.
 
-const CACHE = 'about-time-v8';
+const CACHE = 'about-time-v9';
 const ASSETS = [
   './',
   './index.html',
