@@ -11,7 +11,9 @@ Open it at church, at a wedding reception, at a long lunch. Everyone taps their 
 - **Real Web Push**, so it reaches a phone in a pocket with the app closed.
 - **Installable PWA.** Cache-first shell, light and dark, WCAG AA, Lighthouse 100/100/100.
 
-Status: **v0.1.0** — built, unit-tested and verified in a browser. Not deployed yet; the backend needs three one-time dashboard steps (below).
+Status: **v0.1.0** — built, unit-tested and verified in a browser.
+**Preview:** https://changelinglabs.com/about-time/?demo=1 (demo mode, no backend needed).
+The live backend needs three one-time dashboard steps (below); until they are done the app shows a clear setup message instead of the outing screen.
 
 ---
 
@@ -107,7 +109,7 @@ Full details and troubleshooting: [`supabase/README.md`](supabase/README.md).
 
 ## Deploy
 
-Static files only. Drop the repo contents at `changelinglabs.com/about-time/` (GitHub Pages from `main`, same as Pulse). All paths are relative, so the subdirectory works as-is.
+Static files only, served by GitHub Pages from `Changeling-Labs/about-time` at `changelinglabs.com/about-time/`. All paths are relative, so the subdirectory works as-is. `.nojekyll` keeps Pages from running Jekyll over the bundle.
 
 **Every release:** bump `CACHE` in `sw.js` and add any new module to `ASSETS`. The service worker is cache-first, so a stale client will otherwise keep the old JS.
 
