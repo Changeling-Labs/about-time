@@ -11,9 +11,11 @@ Open it at church, at a wedding reception, at a long lunch. Everyone taps their 
 - **Real Web Push**, so it reaches a phone in a pocket with the app closed.
 - **Installable PWA.** Cache-first shell, light and dark, WCAG AA, Lighthouse 100/100/100.
 
-Status: **v0.1.0** — built, unit-tested, browser-verified and live.
+Status: **v0.2.0** — built, unit-tested, browser-verified and live.
 **Live:** https://changelinglabs.com/about-time/
 The Supabase backend is on (anonymous auth, schema, `notify-ready`) and the two-device test passed: live status sync plus Web Push on macOS and on the iPhone Home Screen app.
+
+**v0.2.0 adds:** an invite link opened while already in an outing now asks before switching; invite links put the join card at the top of the landing screen; a full **Alerts & install** help sheet with browser-specific notification and install steps (plus a real Chrome install button); and a quiet version number in the footer and help sheet.
 
 ---
 
@@ -41,7 +43,7 @@ npm run serve
 ```
 
 1. **Start an outing.** Creates a row in `at_outings` with a random six-character code and adds you to `at_members`.
-2. **Everyone joins** with the code (or a shared `?code=XXXXXX` link). Each device gets an invisible Supabase *anonymous* account — no email, no password, no screen.
+2. **Everyone joins** with the code (or a shared `?code=XXXXXX` link). Each device gets an invisible Supabase *anonymous* account — no email, no password, no screen. A link opened on a phone that is **already in an outing** asks before switching: leaving the current outing is confirmed, and the new one is joined as the same name and face.
 3. **Battery taps** update your own row. Row-level security means you can only ever edit your own row and only see outings you belong to.
 4. **"I'm ready"** updates the row (Realtime pushes it to every screen) and calls the `notify-ready` Edge Function, which sends a Web Push to everyone else's registered devices.
 
@@ -57,7 +59,7 @@ The whole app is vanilla ES modules with no build step. State lives in one objec
 | `js/store.js` | Supabase data layer + anonymous session |
 | `js/demo.js` | In-memory store with a scripted demo |
 | `js/push.js` | Permission, VAPID subscription |
-| `js/config.js` | Public project URL, publishable key, VAPID public key |
+| `js/config.js` | Public project URL, publishable key, VAPID public key, `APP_VERSION` |
 | `sw.js` | Cache-first shell + `push` / `notificationclick` |
 | `supabase/schema.sql` | Tables, RLS, RPCs, Realtime publication |
 | `supabase/functions/notify-ready/index.ts` | Push fan-out Edge Function |
@@ -113,9 +115,19 @@ Full details and troubleshooting: [`supabase/README.md`](supabase/README.md).
 
 Static files only, served by GitHub Pages from `Changeling-Labs/about-time` at `changelinglabs.com/about-time/`. All paths are relative, so the subdirectory works as-is. `.nojekyll` keeps Pages from running Jekyll over the bundle.
 
-**Every release:** bump `CACHE` in `sw.js` and add any new module to `ASSETS`. The service worker is cache-first, so a stale client will otherwise keep the old JS.
+**Every release:** bump `APP_VERSION` in `js/config.js` and `version` in `package.json` (they must match — `test/version.test.js` checks), bump `CACHE` in `sw.js`, and add any new module to `ASSETS`. The service worker is cache-first, so a stale client will otherwise keep the old JS. The version is shown in the landing fineprint, the outing footer, and the help sheet, so "which build are you on?" has a real answer.
 
 **iOS push:** Safari only delivers Web Push to a PWA that has been **added to the Home Screen** (iOS 16.4+). The app detects this and explains it instead of showing a dead button.
+
+### Notifications & install
+
+The app never assumes the browser prompt is self-explanatory:
+
+- **Every alerts card states the next action.** "Turn on alerts · your browser will ask · choose Allow", or the exact unblock steps for Chrome / Edge / Safari / Firefox, tailored to the platform.
+- **`Alerts & install` help sheet** (landing fineprint, outing footer, and links on the alerts card) explains what alerts do, how to install on iPhone (Home Screen), Safari macOS (Add to Dock), Chrome on Android (⋮ → Add to Home screen) and Chrome/Edge on desktop (install icon or menu → Install page as app), and what to check when nothing arrives.
+- **A real install button.** `beforeinstallprompt` is captured, so Chrome gets an "Install app" button that fires the browser's own installation flow instead of instructions for finding a menu.
+- **Dismissing the invite doesn't hide the setting.** "Not now" leaves a one-line "Alerts are off — turn them on" control, so the only path to notifications is never closed.
+- **iPhone and Safari on macOS are called out separately:** Apple only delivers Web Push to the installed app, never a tab.
 
 ---
 
@@ -125,7 +137,7 @@ Static files only, served by GitHub Pages from `Changeling-Labs/about-time` at `
 npm test
 ```
 
-Node's built-in runner. Covers room-code normalisation, battery snapping, member ordering, summary copy, relative time, notification copy and name cleaning.
+Node's built-in runner. Covers room-code normalisation, battery snapping, member ordering, summary copy, relative time, notification copy, name cleaning, and the version/cache pairing (`test/version.test.js`).
 
 ---
 

@@ -24,6 +24,33 @@ export function isIOS() {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
+export function isAndroid() {
+  return /android/i.test(navigator.userAgent);
+}
+
+/**
+ * Safari on macOS and iOS. False for Chrome/Edge/Opera/Firefox on any
+ * platform, including the iOS builds, which name themselves in the UA.
+ */
+export function isSafari() {
+  const ua = navigator.userAgent;
+  return /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/i.test(ua);
+}
+
+/** A human name for the browser, for the "allow notifications here" steps. */
+export function browserName() {
+  const ua = navigator.userAgent;
+  if (/CriOS/.test(ua)) return 'Chrome';
+  if (/FxiOS/.test(ua)) return 'Firefox';
+  if (isIOS()) return 'Safari';
+  if (/Edg\//.test(ua)) return 'Edge';
+  if (/OPR\//.test(ua)) return 'Opera';
+  if (/Firefox\//.test(ua)) return 'Firefox';
+  if (/Chrome\/|Chromium/.test(ua)) return 'Chrome';
+  if (/Safari\//.test(ua)) return 'Safari';
+  return 'this browser';
+}
+
 export function isStandalone() {
   return (
     window.matchMedia?.('(display-mode: standalone)').matches === true ||

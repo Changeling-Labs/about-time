@@ -361,8 +361,36 @@ button {
   padding: 4px 0 8px;
 }
 
+.fineprint-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 8px;
+}
+
+.fineprint-links .link {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .muted {
   color: var(--muted);
+}
+
+/* A join link puts this card first and gives it a warm edge. */
+.card-invite {
+  border-color: rgb(217 80 43 / 38%);
+  box-shadow: 0 0 0 3px rgb(217 80 43 / 8%), var(--shadow);
+}
+
+.version {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Demo banner ──────────────────────────────────────────────────────── */
@@ -877,6 +905,29 @@ button {
   padding: 2px 0;
 }
 
+.alert-status .link {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.alert-status-off {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.push-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 16px;
+}
+
+.push-links .link {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 /* ── Outro ────────────────────────────────────────────────────────────── */
 
 .outro {
@@ -885,6 +936,26 @@ button {
   align-items: center;
   gap: 8px;
   padding: 8px 0 4px;
+}
+
+.outro-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 10px;
+}
+
+.outro-links .link {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.outro-links .link:hover {
+  color: var(--ember);
+  text-decoration: underline;
 }
 
 .badge {
@@ -896,6 +967,138 @@ button {
   border: 1px solid rgb(232 163 61 / 40%);
   border-radius: 999px;
   padding: 3px 10px;
+}
+
+/* ── Sheets ───────────────────────────────────────────────────────────── */
+/* Fixed overlay, centred when it fits and scrollable when it doesn't. */
+
+body.is-sheeted {
+  overflow: hidden;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  padding:
+    max(16px, env(safe-area-inset-top))
+    16px
+    max(16px, env(safe-area-inset-bottom));
+  background: rgb(20 16 12 / 48%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sheet {
+  margin: auto;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lift);
+  animation: sheet-in 0.18s ease-out;
+}
+
+.sheet:focus {
+  outline: none;
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sheet-head h2 {
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.sheet-close {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  margin: -6px -8px 0 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sheet form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sheet .btn {
+  width: 100%;
+}
+
+.sheet-note {
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.help-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.help-block h3 {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.help-block .muted {
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.help-block > .btn {
+  margin-top: 2px;
+}
+
+.hint-ok {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--sage);
 }
 
 /* ── Boot ─────────────────────────────────────────────────────────────── */

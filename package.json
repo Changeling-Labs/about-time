@@ -1,6 +1,6 @@
 {
   "name": "about-time",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "A quiet way for a family to share how much social battery is left — and say when they're ready to go.",

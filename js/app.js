@@ -1,10 +1,11 @@
 // About Time — app shell.
 //
 // Vanilla ES modules, no build step. State lives in one object; every mutation
-// ends in render(). The only text inputs live on the landing screen, so a full
-// re-render never steals focus mid-typing.
+// ends in render(). Text inputs live on the landing screen and in the
+// switch-outing sheet, so a full re-render must not steal focus mid-typing:
+// refresh() holds its render while a sheet is open.
 
-import { APP_NAME, APP_TAGLINE } from './config.js';
+import { APP_NAME, APP_TAGLINE, APP_VERSION } from './config.js';
 import { createRemoteStore, ensureSession } from './store.js';
 import { createDemoStore } from './demo.js';
 import {
@@ -25,8 +26,11 @@ import {
   truncate,
 } from './lib.js';
 import {
+  browserName,
   enablePush,
+  isAndroid,
   isIOS,
+  isSafari,
   isStandalone,
   permission as pushPermission,
   pushSupported,
@@ -47,6 +51,10 @@ const state = {
   prefillCode: '',
   busy: false,
   error: '',
+  // A sheet is state, not DOM: every render rebuilds the whole view.
+  joinSheet: null, // { code, from: 'link' | 'manual' }
+  help: false,
+  installEvent: null,
   push: { supported: false, permission: 'default', dismissed: false, iosHintDismissed: false },
 };
 
@@ -55,6 +63,21 @@ const toast = document.getElementById('toast');
 
 let refreshTimer = null;
 let pollTimer = null;
+let lastSheetFocus = '';
+
+// Chrome (Android and desktop) exposes an install prompt. Capture it so the
+// app can offer a real Install button instead of describing a menu.
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  state.installEvent = event;
+  if (state.view !== 'boot' && !state.joinSheet && !state.help) render();
+});
+
+window.addEventListener('appinstalled', () => {
+  state.installEvent = null;
+  flash('Installed. Open About Time from its icon.');
+  render();
+});
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -83,6 +106,15 @@ function setBusy(busy) {
 
 function friendlyError(err) {
   const message = String(err?.message ?? err ?? '');
+  if (/permission-denied/.test(message)) {
+    return 'Notifications were blocked. Allow them in your browser’s site settings, then try again.';
+  }
+  if (/push-unsupported/.test(message)) {
+    return 'This browser can’t receive notifications.';
+  }
+  if (/push-not-configured/.test(message)) {
+    return 'Notifications aren’t set up for this app yet.';
+  }
   if (/anonymous/i.test(message)) {
     return 'Anonymous sign-in is switched off in Supabase. Turn it on under Authentication → Sign In / Providers.';
   }
@@ -131,6 +163,34 @@ function clearIdentity() {
   }
 }
 
+/** Forget the `?code=` invite in the address bar without reloading. */
+function clearPrefill() {
+  state.prefillCode = '';
+  try {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('code')) return;
+    params.delete('code');
+    const query = params.toString();
+    history.replaceState({}, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * A link opens while this device is already in an outing. The phone belongs
+ * to one outing at a time, so ask before swapping rather than silently
+ * ignoring the invite or silently dumping the current outing.
+ */
+function offerJoinFromLink() {
+  if (!state.prefillCode || !state.outing) return;
+  if (normalizeCode(state.outing.code) === state.prefillCode) {
+    clearPrefill();
+    return;
+  }
+  state.joinSheet = { code: state.prefillCode, from: 'link' };
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 
 async function boot() {
@@ -161,6 +221,8 @@ async function boot() {
       return;
     }
     await beginDemo();
+    offerJoinFromLink();
+    render();
     return;
   }
 
@@ -179,6 +241,8 @@ async function boot() {
     const restored = await openOuting(identity, { silent: true });
     if (restored) {
       startPolling();
+      offerJoinFromLink();
+      render();
       return;
     }
   }
@@ -223,6 +287,11 @@ async function openOuting(identity, { silent = false } = {}) {
     return true;
   } catch (err) {
     clearIdentity();
+    state.outing = null;
+    state.members = [];
+    state.meId = null;
+    state.joinSheet = null;
+    state.help = false;
     state.view = 'landing';
     if (!silent) flash(friendlyError(err));
     render();
@@ -251,6 +320,8 @@ async function refresh() {
       state.outing = null;
       state.members = [];
       state.meId = null;
+      state.joinSheet = null;
+      state.help = false;
       state.view = 'landing';
       flash('That outing has ended.');
       render();
@@ -261,6 +332,8 @@ async function refresh() {
       state.outing = null;
       state.members = [];
       state.meId = null;
+      state.joinSheet = null;
+      state.help = false;
       state.view = 'landing';
       flash('You left this outing.');
       render();
@@ -268,7 +341,9 @@ async function refresh() {
     }
     state.outing = outing;
     state.members = members;
-    render();
+    // A sheet may be mid-typing. Hold the render; closing the sheet repaints
+    // with this fresh state.
+    if (!state.joinSheet && !state.help) render();
   } catch {
     // Keep the last known state; the poll or a realtime event will retry.
   }
@@ -314,10 +389,22 @@ async function handleStart(form) {
     state.outing = outing;
     state.meId = memberId;
     saveIdentity({ outingId: outing.id, memberId, code: outing.code, title: outing.title });
-    await openOuting({ outingId: outing.id, memberId }, { silent: true });
+    const opened = await openOuting({ outingId: outing.id, memberId }, { silent: true });
+    if (!opened) throw new Error('Outing created, but couldn’t load it. Reload the page.');
     startPolling();
     flash('Outing started. Share the code.');
   });
+}
+
+async function joinOuting({ code, name, emoji }) {
+  const { outing, memberId } = await state.store.join({ code, name, emoji });
+  state.outing = outing;
+  state.meId = memberId;
+  saveIdentity({ outingId: outing.id, memberId, code: outing.code, title: outing.title });
+  const opened = await openOuting({ outingId: outing.id, memberId }, { silent: true });
+  if (!opened) throw new Error('Joined, but couldn’t load the outing. Reload the page.');
+  startPolling();
+  return outing;
 }
 
 async function handleJoin(form) {
@@ -331,14 +418,106 @@ async function handleJoin(form) {
   if (!state.store) return flash('Not connected — reload the page.');
 
   await run(async () => {
+    await joinOuting({ code, name, emoji });
+    clearPrefill();
+    flash('You’re in.');
+  });
+}
+
+/**
+ * Leave the current outing and join another as the same person. The sheet
+ * has already asked; this is the part that cannot be undone.
+ */
+async function switchOuting(code) {
+  const person = me();
+  if (!person || !state.outing) return;
+
+  if (normalizeCode(state.outing.code) === code) {
+    state.joinSheet = null;
+    clearPrefill();
+    render();
+    flash('You’re already in that outing.');
+    return;
+  }
+
+  const previous = { id: state.outing.id, title: state.outing.title };
+  const { name, emoji } = person;
+
+  await run(async () => {
+    // Join first. A mistyped or expired code should never cost the outing
+    // you are already in; the old one is only left once the new one exists.
     const { outing, memberId } = await state.store.join({ code, name, emoji });
+
+    state.joinSheet = null;
+    state.store.unwatch?.();
+    clearInterval(pollTimer);
+
+    try {
+      await state.store.leave(previous.id);
+    } catch {
+      /* best effort — the new outing is already joined */
+    }
+
     state.outing = outing;
     state.meId = memberId;
     saveIdentity({ outingId: outing.id, memberId, code: outing.code, title: outing.title });
-    await openOuting({ outingId: outing.id, memberId }, { silent: true });
+
+    const opened = await openOuting({ outingId: outing.id, memberId }, { silent: true });
+    if (!opened) throw new Error('Joined, but couldn’t load the outing. Reload the page.');
+
     startPolling();
-    flash('You’re in.');
+    clearPrefill();
+    flash(`Switched from “${truncate(previous.title, 24)}”.`);
   });
+}
+
+async function handleSwitch(form) {
+  const data = new FormData(form);
+  const code = normalizeCode(data.get('code'));
+  if (!isValidCode(code)) return flash('That code should be six characters, like ABC 234.');
+  await switchOuting(code);
+}
+
+function openJoinSheet() {
+  if (!state.outing) return;
+  state.joinSheet = { code: '', from: 'manual' };
+  render();
+}
+
+function closeSheet() {
+  const wasJoin = Boolean(state.joinSheet);
+  state.joinSheet = null;
+  state.help = false;
+  // Dismissing an invite should survive a reload; dismissing help should not
+  // disturb where the person was.
+  if (wasJoin) clearPrefill();
+  render();
+}
+
+function openHelp() {
+  state.help = true;
+  render();
+}
+
+async function installApp() {
+  const event = state.installEvent;
+  if (!event) {
+    openHelp();
+    return;
+  }
+
+  // prompt() must be called inside the tap, before any await.
+  event.prompt();
+  state.installEvent = null;
+  render();
+
+  try {
+    const { outcome } = await event.userChoice;
+    if (outcome === 'accepted') flash('Installing — open About Time from its icon.');
+    else flash('No problem — you can install from the browser menu later.');
+  } catch {
+    /* the browser owns the outcome */
+  }
 }
 
 async function setBattery(value) {
@@ -418,6 +597,8 @@ async function leaveOuting() {
   state.outing = null;
   state.members = [];
   state.meId = null;
+  state.joinSheet = null;
+  state.help = false;
   state.view = 'landing';
   render();
 
@@ -436,6 +617,7 @@ async function turnOnPush() {
         state.store.saveSubscription({ outingId: state.outing.id, ...sub }),
     });
     state.push.permission = pushPermission();
+    state.help = false;
     render();
     flash('Alerts on. You’ll hear when someone’s ready.');
   });
@@ -467,7 +649,10 @@ function dismissIosHint() {
 
 function render() {
   document.body.dataset.view = state.view;
-  app.innerHTML =
+  const sheetOpen = Boolean(state.joinSheet || state.help);
+  document.body.classList.toggle('is-sheeted', sheetOpen);
+
+  const view =
     state.view === 'outing'
       ? outingHtml()
       : state.view === 'error'
@@ -475,6 +660,30 @@ function render() {
         : state.view === 'landing'
           ? landingHtml()
           : bootHtml();
+
+  app.innerHTML = view + joinSheetHtml() + helpSheetHtml();
+  focusSheet(sheetOpen);
+}
+
+/**
+ * Move focus into a sheet once, when it first opens. Re-focusing on every
+ * realtime render would steal the caret mid-typing.
+ */
+function focusSheet(sheetOpen) {
+  if (!sheetOpen) {
+    lastSheetFocus = '';
+    return;
+  }
+
+  const key = state.joinSheet ? `join:${state.joinSheet.from}` : 'help';
+  if (key === lastSheetFocus) return;
+  lastSheetFocus = key;
+
+  const target =
+    state.joinSheet?.from === 'manual'
+      ? app.querySelector('[data-form="switch"] input[name="code"]')
+      : app.querySelector('.sheet');
+  target?.focus({ preventScroll: true });
 }
 
 function markSvg(size = 56) {
@@ -519,6 +728,48 @@ function emojiRow(group, selected) {
 }
 
 function landingHtml() {
+  const invited = Boolean(state.prefillCode);
+
+  const startCard = `<section class="card">
+    <h2>Start an outing</h2>
+    <form data-form="start" autocomplete="off">
+      <label class="field">
+        <span>Occasion</span>
+        <input name="title" maxlength="40" placeholder="Sunday service" enterkeyhint="next">
+      </label>
+      <label class="field">
+        <span>Your name</span>
+        <input name="name" maxlength="24" placeholder="Dad" required enterkeyhint="next">
+      </label>
+      <div class="field">
+        <span class="field-label">Your face</span>
+        ${emojiRow('start', '🦉')}
+      </div>
+      <button class="btn btn-primary" type="submit">Start the outing</button>
+    </form>
+  </section>`;
+
+  const joinCard = `<section class="card${invited ? ' card-invite' : ''}">
+    ${invited ? '<p class="eyebrow">You’ve been invited</p>' : ''}
+    <h2>Join an outing</h2>
+    <form data-form="join" autocomplete="off">
+      <label class="field">
+        <span>Code</span>
+        <input name="code" value="${esc(state.prefillCode)}" maxlength="7" placeholder="ABC 234"
+          autocapitalize="characters" spellcheck="false" required enterkeyhint="next">
+      </label>
+      <label class="field">
+        <span>Your name</span>
+        <input name="name" maxlength="24" placeholder="Mum" required enterkeyhint="next">
+      </label>
+      <div class="field">
+        <span class="field-label">Your face</span>
+        ${emojiRow('join', '🌷')}
+      </div>
+      <button class="btn ${invited ? 'btn-primary' : 'btn-ghost'}" type="submit">Join</button>
+    </form>
+  </section>`;
+
   return `<div class="narrow">
     <header class="hero">
       <div class="mark-wrap">${markSvg(64)}</div>
@@ -527,51 +778,21 @@ function landingHtml() {
     </header>
 
     <main class="stack">
-      <section class="card">
-        <h2>Start an outing</h2>
-        <form data-form="start" autocomplete="off">
-          <label class="field">
-            <span>Occasion</span>
-            <input name="title" maxlength="40" placeholder="Sunday service" enterkeyhint="next">
-          </label>
-          <label class="field">
-            <span>Your name</span>
-            <input name="name" maxlength="24" placeholder="Dad" required enterkeyhint="next">
-          </label>
-          <div class="field">
-            <span class="field-label">Your face</span>
-            ${emojiRow('start', '🦉')}
-          </div>
-          <button class="btn btn-primary" type="submit">Start the outing</button>
-        </form>
-      </section>
-
-      <div class="or"><span>or</span></div>
-
-      <section class="card">
-        <h2>Join an outing</h2>
-        <form data-form="join" autocomplete="off">
-          <label class="field">
-            <span>Code</span>
-            <input name="code" value="${esc(state.prefillCode)}" maxlength="7" placeholder="ABC 234"
-              autocapitalize="characters" spellcheck="false" required enterkeyhint="next">
-          </label>
-          <label class="field">
-            <span>Your name</span>
-            <input name="name" maxlength="24" placeholder="Mum" required enterkeyhint="next">
-          </label>
-          <div class="field">
-            <span class="field-label">Your face</span>
-            ${emojiRow('join', '🌷')}
-          </div>
-          <button class="btn btn-ghost" type="submit">Join</button>
-        </form>
-      </section>
+      ${
+        invited
+          ? `${joinCard}<div class="or"><span>or</span></div>${startCard}`
+          : `${startCard}<div class="or"><span>or</span></div>${joinCard}`
+      }
     </main>
 
     <p class="fineprint">
       No accounts, no passwords. Just a code.
-      <button class="link" data-action="demo">Preview with demo data</button>
+      <span class="fineprint-links">
+        <button class="link" data-action="demo">Preview with demo data</button>
+        <span aria-hidden="true">·</span>
+        <button class="link" data-action="show-help">Alerts &amp; install</button>
+      </span>
+      <span class="version">v${esc(APP_VERSION)}</span>
     </p>
   </div>`;
 }
@@ -620,55 +841,326 @@ function personHtml(person) {
   </li>`;
 }
 
-function pushCardHtml() {
-  if (!state.outing) return '';
+// ── Alerts & install help ──────────────────────────────────────────────────
+// The notification story differs by platform, and the browser's own prompt is
+// the least self-explanatory part of the app. These helpers answer the three
+// questions a person actually asks: is it on, how do I install this, and why
+// isn't it arriving?
 
-  // No Push API at all: on iOS that means an OS older than 16.4.
-  if (!state.push.supported) {
-    if (isIOS()) {
-      return `<section class="card push">
-        <h2>Notifications need iOS 16.4 or later</h2>
-        <p class="muted">Update your iPhone, then add ${APP_NAME} to the Home Screen and open it from there.</p>
-      </section>`;
+/** Apple only delivers Web Push to an installed app, never a Safari tab. */
+function needsHomeScreenForPush() {
+  return (isIOS() || isSafari()) && !isStandalone();
+}
+
+function installSteps() {
+  if (isIOS()) {
+    return [
+      'Open this page in <strong>Safari</strong>.',
+      'Tap the <strong>Share</strong> button — the square with an arrow.',
+      'Choose <strong>Add to Home Screen</strong>, then open About Time from the new icon.',
+    ];
+  }
+  if (isSafari()) {
+    return [
+      'In Safari, choose <strong>File → Add to Dock</strong>.',
+      'Open About Time from the Dock.',
+    ];
+  }
+  if (browserName() === 'Firefox') {
+    return isAndroid()
+      ? [
+          'Tap the <strong>⋮</strong> menu in Firefox.',
+          'Choose <strong>Add to Home screen</strong>.',
+          'Open About Time from the new icon.',
+        ]
+      : [
+          'Firefox on a computer doesn’t install web apps.',
+          'Bookmark this page instead — alerts still work in a normal tab.',
+        ];
+  }
+  if (isAndroid()) {
+    return [
+      'Open this page in <strong>Chrome</strong>.',
+      'Tap the <strong>⋮</strong> menu, then <strong>Add to Home screen</strong> (or <strong>Install app</strong>).',
+      'Open About Time from the new icon.',
+    ];
+  }
+  return [
+    'Click the <strong>install icon</strong> at the right of the address bar — a small screen with an arrow.',
+    'Or open the browser menu <strong>⋮ → Save and share → Install page as app</strong>.',
+    'Open About Time from its icon.',
+  ];
+}
+
+function installNote() {
+  if (isStandalone()) return 'Already installed — open it from its icon.';
+  if (isIOS()) {
+    return 'On iPhone this is required for alerts: Safari only delivers notifications to a Home Screen app.';
+  }
+  if (isSafari()) {
+    return 'On a Mac, Safari only delivers notifications to a web app added to the Dock.';
+  }
+  if (browserName() === 'Firefox') {
+    return isAndroid()
+      ? 'Optional — alerts work in a normal tab too.'
+      : 'Firefox can’t install this as an app on a computer; a bookmark works just as well, and alerts work in a normal tab.';
+  }
+  if (isAndroid()) {
+    return 'Optional, but it opens full-screen and puts the icon on your home screen. Alerts also work in a Chrome tab.';
+  }
+  return 'Optional, but it opens in its own window and keeps the icon a click away. Alerts also work in a normal tab.';
+}
+
+function unblockSteps() {
+  if (isIOS()) {
+    if (!isStandalone()) {
+      return [
+        'Add About Time to the Home Screen first — iPhone only sends alerts to Home Screen apps.',
+        'Open it from the icon, then tap <strong>Turn on alerts</strong> and allow.',
+      ];
     }
-    return '';
+    return [
+      'Open the iPhone <strong>Settings</strong> app.',
+      'Tap <strong>Notifications → About Time</strong>.',
+      'Turn on <strong>Allow Notifications</strong>.',
+    ];
+  }
+
+  const browser = browserName();
+
+  if (browser === 'Chrome' || browser === 'Edge' || browser === 'Opera') {
+    return isAndroid()
+      ? [
+          'Tap the <strong>tune</strong> icon (or padlock) at the start of the address bar.',
+          'Tap <strong>Permissions → Notifications</strong>.',
+          'Choose <strong>Allow</strong>, then reload this page.',
+        ]
+      : [
+          'Click the <strong>tune</strong> icon (or padlock) at the start of the address bar.',
+          'Set <strong>Notifications</strong> to <strong>Allow</strong>.',
+          'Reload this page.',
+        ];
+  }
+  if (browser === 'Safari') {
+    return [
+      'In Safari, open <strong>Settings for This Website</strong> from the address field.',
+      'Set <strong>Notifications</strong> to <strong>Allow</strong>.',
+      'Reload this page.',
+    ];
+  }
+  if (browser === 'Firefox') {
+    return [
+      'Click the <strong>padlock</strong> in the address bar.',
+      'Clear the blocked permission for <strong>Notifications</strong>.',
+      'Reload and choose <strong>Allow</strong> when asked.',
+    ];
+  }
+  return [
+    `Open this page’s site settings in ${esc(browser)}.`,
+    'Allow notifications for this site.',
+    'Reload this page.',
+  ];
+}
+
+function alertsHelpStatusHtml() {
+  if (!state.push.supported) {
+    return `<p class="muted">This browser can’t receive Web Push.${
+      isIOS()
+        ? ' On iPhone you need iOS 16.4 or later.'
+        : ' Chrome, Edge, Firefox and Safari on a computer all can.'
+    }</p>`;
   }
 
   if (state.push.permission === 'granted') {
-    return `<p class="alert-status">Alerts on — you’ll be nudged when someone’s ready.</p>`;
+    return '<p class="hint-ok">Alerts are on for this device.</p>';
   }
 
-  // Safari on iPhone cannot receive Web Push. Only the Home Screen app can.
-  if (isIOS() && !isStandalone()) {
-    if (state.push.iosHintDismissed) return '';
+  if (state.push.permission === 'denied') {
+    return `<p class="muted"><strong>Blocked.</strong> Allow them in ${esc(browserName())}:</p>
+      <ol class="steps">${unblockSteps().map((step) => `<li>${step}</li>`).join('')}</ol>`;
+  }
+
+  if (!state.outing) {
+    return '<p class="muted">Join or start an outing first — alerts are switched on from inside it.</p>';
+  }
+
+  if (needsHomeScreenForPush()) {
+    return `<p class="muted">Apple only delivers notifications to the installed app. Add it to your ${
+      isIOS() ? 'Home Screen' : 'Dock'
+    } first, then tap <strong>Turn on alerts</strong> from the icon.</p>`;
+  }
+
+  return `<p class="muted">Tap <strong>Turn on alerts</strong>. Your browser will ask permission — choose <strong>Allow</strong>. The prompt only appears once, and only after a tap like this.</p>
+    <button class="btn btn-primary" data-action="enable-push">Turn on alerts</button>`;
+}
+
+function pushCardHtml() {
+  if (!state.outing) return '';
+
+  // No Push API at all. On Apple platforms that usually means an old iOS, or
+  // Safari in a tab where Web Push is deliberately missing.
+  if (!state.push.supported) {
+    if (needsHomeScreenForPush()) {
+      return `<section class="card push">
+        <h2>Add to ${isIOS() ? 'Home Screen' : 'Dock'} to get alerts</h2>
+        <ol class="steps">${installSteps().map((step) => `<li>${step}</li>`).join('')}</ol>
+        <p class="muted">${installNote()}</p>
+        <button class="link" data-action="show-help">How alerts &amp; install work</button>
+      </section>`;
+    }
     return `<section class="card push">
-      <h2>Add to Home Screen to get alerts</h2>
-      <ol class="steps">
-        <li>Tap the <strong>Share</strong> button in Safari.</li>
-        <li>Choose <strong>Add to Home Screen</strong>.</li>
-        <li>Open ${APP_NAME} from the new icon.</li>
-      </ol>
-      <p class="muted">Apple only delivers notifications to web apps opened from the Home Screen — not from a Safari tab.</p>
-      <button class="btn btn-ghost" data-action="dismiss-ios-hint">Not now</button>
+      <h2>Alerts aren’t available in this browser</h2>
+      <p class="muted">${
+        isIOS()
+          ? 'iPhone needs iOS 16.4 or later.'
+          : 'Chrome, Edge, Firefox and Safari on a computer can all receive them.'
+      }</p>
+      <button class="link" data-action="show-help">How alerts work</button>
     </section>`;
   }
 
-  if (state.push.dismissed) return '';
+  if (state.push.permission === 'granted') {
+    return `<p class="alert-status">Alerts on for this device.
+      <button class="link" data-action="show-help">Not getting them?</button></p>`;
+  }
+
+  if (needsHomeScreenForPush()) {
+    if (state.push.iosHintDismissed) {
+      return `<p class="alert-status alert-status-off">Alerts need the installed app.
+        <button class="link" data-action="show-help">How</button></p>`;
+    }
+    return `<section class="card push">
+      <h2>Add to ${isIOS() ? 'Home Screen' : 'Dock'} to get alerts</h2>
+      <ol class="steps">${installSteps().map((step) => `<li>${step}</li>`).join('')}</ol>
+      <p class="muted">${installNote()}</p>
+      <div class="push-links">
+        <button class="link" data-action="show-help">Full instructions</button>
+        <button class="link" data-action="dismiss-ios-hint">Not now</button>
+      </div>
+    </section>`;
+  }
 
   if (state.push.permission === 'denied') {
     return `<section class="card push">
       <h2>Alerts are blocked</h2>
-      <p class="muted">Your browser is blocking notifications for this site. You can re-enable them in its settings.</p>
-      <button class="btn btn-ghost" data-action="dismiss-push">Dismiss</button>
+      <p class="muted">Allow notifications for this page and they’ll arrive even when the app is closed.</p>
+      <ol class="steps">${unblockSteps().map((step) => `<li>${step}</li>`).join('')}</ol>
+      <button class="link" data-action="show-help">More help with alerts</button>
     </section>`;
   }
 
+  if (state.push.dismissed) {
+    return `<p class="alert-status alert-status-off">Alerts are off.
+      <button class="link" data-action="enable-push">Turn them on</button>
+      <span aria-hidden="true">·</span>
+      <button class="link" data-action="show-help">How</button></p>`;
+  }
+
   return `<section class="card push">
-    <h2>Get a nudge</h2>
-    <p class="muted">A quiet notification when someone is ready to go — even with the app closed.</p>
+    <h2>Get a nudge when someone’s ready</h2>
+    <p class="muted">One quiet notification, even with the app closed. Your browser will ask permission — choose <strong>Allow</strong>.</p>
     <button class="btn btn-primary" data-action="enable-push">Turn on alerts</button>
-    <button class="btn btn-ghost" data-action="dismiss-push">Not now</button>
+    <div class="push-links">
+      <button class="link" data-action="show-help">How alerts &amp; install work</button>
+      <button class="link" data-action="dismiss-push">Not now</button>
+    </div>
   </section>`;
+}
+
+/** Chrome exposes a real install prompt; offer it rather than describing a menu. */
+function installCardHtml() {
+  if (!state.installEvent || isStandalone()) return '';
+  const alertsSettled = state.push.permission === 'granted' || state.push.dismissed;
+  if (!alertsSettled) return '';
+
+  return `<section class="card push">
+    <h2>Install About Time</h2>
+    <p class="muted">Opens full-screen and puts the icon where you can find it. Alerts work either way in ${esc(browserName())}.</p>
+    <button class="btn btn-ghost" data-action="install">Install app</button>
+  </section>`;
+}
+
+function joinSheetHtml() {
+  const sheet = state.joinSheet;
+  if (!sheet || !state.outing) return '';
+
+  const person = me();
+  const fromLink = sheet.from === 'link';
+
+  return `<div class="sheet-backdrop" data-sheet-backdrop>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="join-sheet-title" tabindex="-1">
+      <div class="sheet-head">
+        <div>
+          <p class="eyebrow">${fromLink ? 'You’re invited' : 'Switch outings'}</p>
+          <h2 id="join-sheet-title">${
+            fromLink ? `Join ${esc(formatCode(sheet.code))}?` : 'Join a different outing'
+          }</h2>
+        </div>
+        <button class="sheet-close" data-action="close-sheet" aria-label="Close">✕</button>
+      </div>
+
+      <p class="muted">You’re in <strong>${esc(state.outing.title)}</strong>. Joining another outing takes you out of this one.</p>
+
+      <form data-form="switch" autocomplete="off">
+        <label class="field">
+          <span>Code</span>
+          <input name="code" value="${esc(formatCode(sheet.code))}" maxlength="7" placeholder="ABC 234"
+            autocapitalize="characters" spellcheck="false" required enterkeyhint="go">
+        </label>
+        ${person ? `<p class="sheet-note">You’ll join as <strong>${esc(person.emoji)} ${esc(person.name)}</strong>.</p>` : ''}
+        <button class="btn btn-primary" type="submit">Leave &amp; join</button>
+        <button class="btn btn-ghost" type="button" data-action="close-sheet">Stay here</button>
+      </form>
+    </section>
+  </div>`;
+}
+
+function helpSheetHtml() {
+  if (!state.help) return '';
+
+  return `<div class="sheet-backdrop" data-sheet-backdrop>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="help-title" tabindex="-1">
+      <div class="sheet-head">
+        <div>
+          <p class="eyebrow">${APP_NAME}</p>
+          <h2 id="help-title">Alerts &amp; install</h2>
+        </div>
+        <button class="sheet-close" data-action="close-sheet" aria-label="Close">✕</button>
+      </div>
+
+      <div class="sheet-body">
+        <section class="help-block">
+          <h3>What alerts do</h3>
+          <p class="muted">When someone taps “I’m ready to go”, everyone else’s phone gets one quiet notification — even with the app closed. Battery changes never notify.</p>
+        </section>
+
+        <section class="help-block">
+          <h3>On this device</h3>
+          ${alertsHelpStatusHtml()}
+        </section>
+
+        <section class="help-block">
+          <h3>Install it like an app</h3>
+          <p class="muted">${installNote()}</p>
+          <ol class="steps">${installSteps().map((step) => `<li>${step}</li>`).join('')}</ol>
+          ${state.installEvent ? '<button class="btn btn-ghost" data-action="install">Install app</button>' : ''}
+        </section>
+
+        <section class="help-block">
+          <h3>Nothing arriving?</h3>
+          <ol class="steps">
+            <li>Check the phone’s own settings — notifications on, not muted, and not in a Focus mode.</li>
+            <li>Allow notifications for this site in ${esc(browserName())}.</li>
+            <li>If you switched phones, turn alerts on again on the new one.</li>
+          </ol>
+        </section>
+      </div>
+
+      <p class="version">${APP_NAME} v${esc(APP_VERSION)} · ${esc(browserName())}${
+        isStandalone() ? ' · installed' : ''
+      }</p>
+    </section>
+  </div>`;
 }
 
 function outingHtml() {
@@ -747,10 +1239,18 @@ function outingHtml() {
     </section>
 
     ${pushCardHtml()}
+    ${installCardHtml()}
 
     <footer class="outro">
       ${state.demo ? '<span class="badge">Demo data</span>' : ''}
-      <button class="link" data-action="leave">Leave this outing</button>
+      <div class="outro-links">
+        <button class="link" data-action="switch-outing">Join a different outing</button>
+        <span aria-hidden="true">·</span>
+        <button class="link" data-action="show-help">Alerts &amp; install</button>
+        <span aria-hidden="true">·</span>
+        <button class="link" data-action="leave">Leave</button>
+      </div>
+      <span class="version">${APP_NAME} v${esc(APP_VERSION)}</span>
     </footer>
   </main>`;
 }
@@ -763,9 +1263,17 @@ app.addEventListener('submit', (event) => {
   event.preventDefault();
   if (form.dataset.form === 'start') handleStart(form);
   else if (form.dataset.form === 'join') handleJoin(form);
+  else if (form.dataset.form === 'switch') handleSwitch(form);
 });
 
 app.addEventListener('click', (event) => {
+  // A tap on the dimmed backdrop closes the sheet; a tap inside does not.
+  const backdrop = event.target.closest('[data-sheet-backdrop]');
+  if (backdrop && event.target === backdrop) {
+    closeSheet();
+    return;
+  }
+
   const target = event.target.closest('[data-action]');
   if (!target) return;
 
@@ -802,6 +1310,18 @@ app.addEventListener('click', (event) => {
     case 'dismiss-ios-hint':
       dismissIosHint();
       break;
+    case 'switch-outing':
+      openJoinSheet();
+      break;
+    case 'show-help':
+      openHelp();
+      break;
+    case 'close-sheet':
+      closeSheet();
+      break;
+    case 'install':
+      installApp();
+      break;
     case 'retry':
       boot();
       break;
@@ -813,6 +1333,13 @@ app.addEventListener('click', (event) => {
     default:
       break;
   }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (!state.joinSheet && !state.help) return;
+  event.preventDefault();
+  closeSheet();
 });
 
 // ── Go ─────────────────────────────────────────────────────────────────────

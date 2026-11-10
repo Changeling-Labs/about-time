@@ -17,3 +17,8 @@ export const VAPID_PUBLIC_KEY =
 export const APP_NAME = 'About Time';
 export const APP_TAGLINE = 'Everyone knows when it’s time.';
 export const EDGE_FUNCTION = 'notify-ready';
+
+// Shown quietly in the UI and in the Help sheet. Keep it in step with
+// package.json (test/version.test.js enforces it) and bump the service-worker
+// CACHE in sw.js on every release.
+export const APP_VERSION = '0.2.0';
